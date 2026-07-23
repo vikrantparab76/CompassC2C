@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>C2C Accelerator — Step by Step</title>
+<style>
+  :root{
+    --navy:#122447;--navy2:#1c3564;--yellow:#F6A800;--yellow-soft:#ffce5a;
+    --ink:#1a2338;--slate:#5c6a86;--paper:#f6f8fc;--line:rgba(18,36,71,.12);
+    --good:#2ec16b;--gap:#e0576b;
+    --time:#3b82f6;--cost:#16a34a;--acc:#8b5cf6;--speed:#f59e0b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);background:#0c1a35;-webkit-font-smoothing:antialiased;line-height:1.45}
+  .scroller{height:100dvh;overflow-y:scroll;scroll-snap-type:y mandatory;scroll-behavior:smooth;scrollbar-width:none}
+  .scroller::-webkit-scrollbar{display:none}
+
+  .stage{height:100dvh;scroll-snap-align:start;scroll-snap-stop:always;position:relative;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:max(64px,env(safe-area-inset-top)) 20px max(40px,env(safe-area-inset-bottom));overflow:hidden}
+  .inner{width:100%;max-width:540px;margin:0 auto;text-align:center}
+
+  /* top bar */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:60;display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px calc(14px);background:linear-gradient(#0c1a35,rgba(12,26,53,0));pointer-events:none}
+  .topbar .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;letter-spacing:.4px;color:#fff}
+  .topbar .brand .mk{width:9px;height:9px;border-radius:50%;background:var(--yellow);box-shadow:0 0 0 3px rgba(246,168,0,.25)}
+  .topbar .stepno{font-size:12px;font-weight:800;color:var(--yellow-soft);letter-spacing:.5px}
+  .progline{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--yellow),var(--yellow-soft));z-index:61;width:0;transition:width .3s}
+
+  /* side dots */
+  .dots{position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:60;display:flex;flex-direction:column;gap:9px}
+  .dots b{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.28);transition:.3s;display:block}
+  .dots b.on{background:var(--yellow);height:18px;border-radius:5px}
+
+  /* dark vs light stages */
+  .stage.dark{background:radial-gradient(120% 120% at 50% 0%,#1c3564,#0c1a35);color:#fff}
+  .stage.light{background:var(--paper);color:var(--ink)}
+  .stage .kicker{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--yellow);margin-bottom:12px}
+  .stage.light .kicker{color:#c99400}
+  .stage h2{font-size:clamp(26px,7vw,40px);font-weight:850;letter-spacing:-1px;line-height:1.06}
+  .stage.dark h2{color:#fff}
+  .stage .sub{font-size:clamp(15px,4vw,17px);color:var(--slate);margin-top:12px;max-width:460px;margin-left:auto;margin-right:auto}
+  .stage.dark .sub{color:rgba(255,255,255,.8)}
+
+  /* content reveal on active */
+  .stage .anim{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+  .stage.active .anim{opacity:1;transform:none}
+  .stage.active .anim.a1{transition-delay:.05s}
+  .stage.active .anim.a2{transition-delay:.16s}
+  .stage.active .anim.a3{transition-delay:.28s}
+
+  /* value chips */
+  .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;padding:8px 13px;border-radius:100px;
+    background:#fff;border:1px solid var(--line);box-shadow:0 4px 14px rgba(18,36,71,.06)}
+  .stage.dark .chip{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16);color:#fff}
+  .chip .ci{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .chip .ci svg{width:11px;height:11px;stroke:#fff;fill:none;stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round}
+  .chip.time .ci{background:var(--time)} .chip.cost .ci{background:var(--cost)}
+  .chip.acc .ci{background:var(--acc)} .chip.speed .ci{background:var(--speed)}
+
+  /* demo shell */
+  .demo{margin-top:22px;width:100%;background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;
+    box-shadow:0 16px 40px rgba(8,18,40,.18);position:relative;overflow:hidden}
+  .stage.dark .demo{background:#0f2044;border-color:rgba(255,255,255,.1)}
+  .demo-cap{margin-top:11px;font-size:11.5px;font-weight:700;color:#9aa4b6;text-align:right}
+  .stage.dark .demo-cap{color:rgba(255,255,255,.5)}
+  .demo-cap b{color:var(--yellow)}
+
+  /* 1 framework */
+  .fw{display:grid;grid-template-columns:74px repeat(3,1fr);gap:6px;align-items:center}
+  .fw .rl{font-size:10.5px;font-weight:700;color:var(--slate);text-align:right}
+  .fw .hd{font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#9aa4b6;text-align:center}
+  .fwc{height:22px;border-radius:5px;background:#e7ebf3;position:relative;transform:scale(.85);opacity:.5;transition:.35s}
+  .fwc.on{background:linear-gradient(135deg,var(--navy),var(--navy2));transform:scale(1);opacity:1}
+  .fwc.on:after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--yellow);font-size:11px;font-weight:800}
+
+  /* 2 roles */
+  .roles{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+  .rchip{font-size:12.5px;font-weight:700;color:var(--slate);background:#fff;border:1.5px solid var(--line);padding:8px 13px;border-radius:100px;transition:.4s}
+  .stage.dark .rchip{background:rgba(255,255,255,.06);color:rgba(255,255,255,.75);border-color:rgba(255,255,255,.14)}
+  .rchip.sel{color:var(--navy);border-color:var(--yellow);background:var(--yellow-soft);box-shadow:0 6px 16px rgba(246,168,0,.3);transform:scale(1.06)}
+  .rchip.sel:after{content:" ✓";font-weight:900}
+  .rchip.dim{opacity:.4}
+
+  /* 3 AI */
+  .aibox{text-align:left;background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .stage.dark .aibox{background:#fff}
+  .aibox .lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--yellow)}
+  .aibox .txt{margin-top:8px;font-size:14.5px;color:var(--ink);line-height:1.5;min-height:80px}
+  .cursor{display:inline-block;width:2px;height:15px;background:var(--navy);margin-left:1px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* 4/5 tiles */
+  .cat{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;position:relative}
+  .ct{aspect-ratio:1;border-radius:3px;background:#cfd6e2;transition:.3s}
+  .stage.dark .ct{background:rgba(255,255,255,.14)}
+  .ct.match{background:var(--good)}
+  .scanline{position:absolute;top:0;bottom:0;width:34px;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(246,168,0,.6),transparent);left:-40px;opacity:0}
+
+  /* 6 gap */
+  .gapwrap{display:flex;align-items:center;gap:16px}
+  .ring{width:94px;height:94px;border-radius:50%;flex:0 0 auto;background:conic-gradient(var(--yellow) 0%,#e7ebf3 0%);
+    display:flex;align-items:center;justify-content:center}
+  .stage.dark .ring{background:conic-gradient(var(--yellow) 0%,rgba(255,255,255,.14) 0%)}
+  .ring .in{width:70px;height:70px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .stage.dark .ring .in{background:#0f2044}
+  .ring .in b{font-size:22px;font-weight:850;color:var(--navy)}
+  .stage.dark .ring .in b{color:#fff}
+  .ring .in small{font-size:8.5px;color:var(--slate);text-transform:uppercase;letter-spacing:.4px}
+  .stage.dark .ring .in small{color:rgba(255,255,255,.6)}
+  .gaplist{flex:1;text-align:left}
+  .gaprow{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:4px 0;opacity:0;transform:translateX(-8px);transition:.4s;color:var(--ink)}
+  .stage.dark .gaprow{color:rgba(255,255,255,.9)}
+  .gaprow.on{opacity:1;transform:none}
+  .gaprow .pin{width:8px;height:8px;border-radius:50%;background:var(--gap);flex:0 0 auto;box-shadow:0 0 0 3px rgba(224,87,107,.18)}
+
+  /* 7 new courses */
+  .newgrid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+  .ncourse{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1.5px solid var(--yellow);border-radius:10px;padding:8px 12px;
+    font-size:12.5px;font-weight:700;color:var(--navy);opacity:0;transform:scale(.85) translateY(8px);transition:.45s}
+  .ncourse.on{opacity:1;transform:none;box-shadow:0 8px 20px rgba(246,168,0,.2)}
+  .ncourse .pl{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,var(--yellow),#ffbf40);color:#122447;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px}
+
+  /* 8 path */
+  .lp{display:grid;grid-template-columns:64px 1fr;gap:8px;text-align:left}
+  .lp .lane{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--slate);display:flex;align-items:center}
+  .stage.dark .lp .lane{color:rgba(255,255,255,.6)}
+  .lprow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .lpn{font-size:11px;font-weight:700;color:#fff;background:linear-gradient(135deg,var(--navy),var(--navy2));border-radius:7px;padding:6px 9px;
+    opacity:0;transform:translateY(8px) scale(.9);transition:.4s;white-space:nowrap}
+  .stage.dark .lpn{background:rgba(255,255,255,.14)}
+  .lpn.on{opacity:1;transform:none}
+  .lpn.new{background:linear-gradient(135deg,#b9820a,var(--yellow));color:#241a02}
+  .published{margin-top:13px;display:inline-flex;align-items:center;gap:8px;background:rgba(46,193,107,.14);border:1px solid rgba(46,193,107,.45);
+    color:#1c8f4d;font-weight:800;font-size:13px;padding:8px 14px;border-radius:100px;opacity:0;transform:translateY(8px);transition:.5s}
+  .stage.dark .published{color:#6ee7a0}
+  .published.on{opacity:1;transform:none}
+
+  /* hero */
+  #hero h1{font-size:clamp(32px,9vw,52px);font-weight:850;letter-spacing:-1.4px;line-height:1.04;color:#fff}
+  #hero h1 .ac{color:var(--yellow)}
+  #hero .fullname{margin-top:10px;color:var(--yellow-soft);font-size:clamp(12px,3.4vw,14px);font-weight:700;text-transform:uppercase;letter-spacing:2px}
+  #hero .lead{margin-top:8px;color:rgba(255,255,255,.82);font-size:clamp(16px,4.4vw,19px);max-width:440px;margin-left:auto;margin-right:auto}
+  .kwcloud{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin-top:26px;max-width:520px;margin-left:auto;margin-right:auto}
+  .kw{font-size:14px;font-weight:700;color:rgba(255,255,255,.86);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);
+    padding:9px 15px;border-radius:100px;opacity:0;transform:translateY(14px) scale(.9);
+    transition:opacity .55s cubic-bezier(.2,.7,.2,1),transform .55s cubic-bezier(.2,.7,.2,1)}
+  .kw.big{font-size:clamp(17px,5vw,22px);font-weight:850;letter-spacing:-.3px;color:#fff;background:rgba(255,255,255,.11);padding:10px 18px}
+  .kw.val{color:#241a02;background:linear-gradient(135deg,var(--yellow),#ffbf40);border-color:transparent;box-shadow:0 6px 16px rgba(246,168,0,.3)}
+  .stage.active .kw{opacity:1;transform:none}
+  .stage.active .kw:nth-child(1){transition-delay:.18s}
+  .stage.active .kw:nth-child(2){transition-delay:.28s}
+  .stage.active .kw:nth-child(3){transition-delay:.38s}
+  .stage.active .kw:nth-child(4){transition-delay:.50s}
+  .stage.active .kw:nth-child(5){transition-delay:.58s}
+  .stage.active .kw:nth-child(6){transition-delay:.66s}
+  .stage.active .kw:nth-child(7){transition-delay:.74s}
+  .stage.active .kw:nth-child(8){transition-delay:.82s}
+  .stage.active .kw:nth-child(9){transition-delay:.94s}
+  .stage.active .kw:nth-child(10){transition-delay:1.02s}
+  .stage.active .kw:nth-child(11){transition-delay:1.10s}
+  #hero canvas{position:absolute;inset:0;z-index:0;opacity:.85}
+  #hero .inner{position:relative;z-index:2}
+  .cue{position:absolute;bottom:calc(28px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:3;color:rgba(255,255,255,.6);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+  .cue .cv{display:block;margin:8px auto 0;width:12px;height:12px;border-right:2px solid var(--yellow);border-bottom:2px solid var(--yellow);transform:rotate(45deg);animation:bob 1.6s infinite}
+  @keyframes bob{0%,100%{transform:rotate(45deg) translateY(0);opacity:.4}50%{transform:rotate(45deg) translateY(6px);opacity:1}}
+
+  /* close */
+  #close .bigrow{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+  #close .metric{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px 14px;min-width:96px}
+  #close .metric b{display:block;font-size:22px;font-weight:850;color:var(--yellow)}
+  #close .metric span{font-size:11px;color:rgba(255,255,255,.72)}
+  .cta{display:inline-block;margin-top:26px;padding:14px 30px;border-radius:100px;font-weight:800;font-size:15px;
+    background:linear-gradient(135deg,var(--yellow),#ffbf40);color:#122447;text-decoration:none;box-shadow:0 12px 30px rgba(246,168,0,.35)}
+</style>
+</head>
+<body>
+<div class="progline" id="progline"></div>
+<div class="topbar">
+  <div class="brand"><span class="mk"></span>C2C&nbsp;ACCELERATOR</div>
+  <div class="stepno" id="stepno"></div>
+</div>
+<div class="dots" id="dots"></div>
+
+<div class="scroller" id="scroller">
+
+  <!-- HERO / CONTEXT -->
+  <section class="stage dark" id="hero" data-i="0">
+    <canvas id="stars"></canvas>
+    <div class="inner">
+      <div class="kicker anim a1">Compass Group · Learning &amp; Development</div>
+      <h1 class="anim a1">C2C <span class="ac">Accelerator</span></h1>
+      <p class="fullname anim a2">Competency&nbsp;to&nbsp;Course&nbsp;Accelerator</p>
+      <p class="lead anim a2">From competency to course — accelerated.</p>
+      <div class="kwcloud">
+        <span class="kw big">Skills</span>
+        <span class="kw big">Competencies</span>
+        <span class="kw big">Learning Paths</span>
+        <span class="kw">Every Role</span>
+        <span class="kw">AI-Powered</span>
+        <span class="kw">Totara-Integrated</span>
+        <span class="kw">Gap Analysis</span>
+        <span class="kw">Workforce Ready</span>
+        <span class="kw val">Save Time</span>
+        <span class="kw val">Save Cost</span>
+        <span class="kw val">Accuracy</span>
+      </div>
+    </div>
+    <div class="cue">Scroll to begin<span class="cv"></span></div>
+  </section>
+
+  <!-- 1 -->
+  <section class="stage light" data-i="1" data-demo="1">
+    <div class="inner">
+      <div class="kicker anim a1">Step 1</div>
+      <h2 class="anim a1">Use your framework</h2>
+      <p class="sub anim a2">Start from the proven competency framework — 6 skill areas × 3 levels. No blank page.</p>
+      <div class="chips anim a2" data-chips='[["time","Saves setup time"],["acc","Consistent, org-wide standard"]]'></div>
+      <div class="demo anim a3"><div class="fw" id="d1"></div><div class="demo-cap"><b>6 × 3</b> competency framework</div></div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="stage dark" data-i="2" data-demo="2">
+    <div class="inner">
+      <div class="kicker anim a1">Step 2</div>
+      <h2 class="anim a1">Select a role</h2>
+      <p class="sub anim a2">Pick any role across the organization. C2C loads its profile instantly.</p>
+      <div class="chips anim a2" data-chips='[["speed","Any role in one tap"],["acc","7,541 titles, cleanly mapped"]]'></div>
+      <div class="demo anim a3"><div class="roles" id="d2"></div><div class="demo-cap"><b>Executive Chef</b> selected</div></div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="stage light" data-i="3" data-demo="3">
+    <div class="inner">
+      <div class="kicker anim a1">Step 3</div>
+      <h2 class="anim a1">Define competencies with AI</h2>
+      <p class="sub anim a2">AI drafts role-specific competencies for you — your experts review and approve.</p>
+      <div class="chips anim a2" data-chips='[["time","Saves time"],["acc","Role-specific language"],["cost","No consultant fees"]]'></div>
+      <div class="demo anim a3">
+        <div class="aibox"><div class="lbl">✨ AI · Executive Chef · Functional Skills</div><div class="txt" id="d3"><span class="cursor"></span></div></div>
+        <div class="demo-cap">Draft → review → <b>approve</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="stage dark" data-i="4" data-demo="4">
+    <div class="inner">
+      <div class="kicker anim a1">Step 4</div>
+      <h2 class="anim a1">Scan the Totara catalogue</h2>
+      <p class="sub anim a2">C2C reads your entire course library automatically — every course, one pass.</p>
+      <div class="chips anim a2" data-chips='[["time","Whole catalogue in one pass"],["acc","Nothing missed"]]'></div>
+      <div class="demo anim a3"><div class="cat" id="d4"><div class="scanline" id="d4scan"></div></div><div class="demo-cap"><b id="d4count">0</b> courses scanned</div></div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="stage light" data-i="5" data-demo="5">
+    <div class="inner">
+      <div class="kicker anim a1">Step 5</div>
+      <h2 class="anim a1">Match courses to competencies</h2>
+      <p class="sub anim a2">It maps exactly which existing courses satisfy each competency for the role.</p>
+      <div class="chips anim a2" data-chips='[["acc","Exact skill-to-course match"],["time","No manual cross-referencing"]]'></div>
+      <div class="demo anim a3"><div class="cat" id="d5"></div><div class="demo-cap"><b id="d5count">0</b> courses matched</div></div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="stage dark" data-i="6" data-demo="6">
+    <div class="inner">
+      <div class="kicker anim a1">Step 6</div>
+      <h2 class="anim a1">Gap analysis</h2>
+      <p class="sub anim a2">Every competency with no course is flagged instantly — blind spots become a to-do list.</p>
+      <div class="chips anim a2" data-chips='[["cost","Spend only where gaps exist"],["acc","Zero blind spots"]]'></div>
+      <div class="demo anim a3">
+        <div class="gapwrap">
+          <div class="ring" id="d6ring"><div class="in"><b id="d6pct">0%</b><small>covered</small></div></div>
+          <div class="gaplist" id="d6list">
+            <div class="gaprow"><span class="pin"></span>Food Safety Leadership · Adv</div>
+            <div class="gaprow"><span class="pin"></span>Cost &amp; Margin Mgmt · Expert</div>
+            <div class="gaprow"><span class="pin"></span>Team Coaching · Advanced</div>
+            <div class="gaprow"><span class="pin"></span>Menu Innovation · Expert</div>
+            <div class="gaprow"><span class="pin"></span>Allergen Compliance · Adv</div>
+          </div>
+        </div>
+        <div class="demo-cap"><b>5</b> competency gaps found</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="stage light" data-i="7" data-demo="7">
+    <div class="inner">
+      <div class="kicker anim a1">Step 7</div>
+      <h2 class="anim a1">Create the missing courses with AI</h2>
+      <p class="sub anim a2">AI drafts the courses needed to close every gap — a shortfall becomes ready-to-build content.</p>
+      <div class="chips anim a2" data-chips='[["cost","Build only what is missing"],["time","Saves build time"]]'></div>
+      <div class="demo anim a3">
+        <div class="newgrid" id="d7">
+          <div class="ncourse"><span class="pl">+</span>Food Safety Leadership</div>
+          <div class="ncourse"><span class="pl">+</span>Cost &amp; Margin Mgmt</div>
+          <div class="ncourse"><span class="pl">+</span>Coaching Your Team</div>
+          <div class="ncourse"><span class="pl">+</span>Menu Innovation</div>
+          <div class="ncourse"><span class="pl">+</span>Advanced Allergen</div>
+        </div>
+        <div class="demo-cap"><b>5</b> courses drafted by AI</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="stage dark" data-i="8" data-demo="8">
+    <div class="inner">
+      <div class="kicker anim a1">Step 8</div>
+      <h2 class="anim a1">Publish the path to Totara</h2>
+      <p class="sub anim a2">A complete, sequenced learning path is written back into Totara — ready for learners.</p>
+      <div class="chips anim a2" data-chips='[["speed","Ready day one"],["acc","100% competency coverage"]]'></div>
+      <div class="demo anim a3">
+        <div class="lp" id="d8">
+          <div class="lane">Onboard</div><div class="lprow" data-lane="0"></div>
+          <div class="lane">Core</div><div class="lprow" data-lane="1"></div>
+          <div class="lane">Growth</div><div class="lprow" data-lane="2"></div>
+        </div>
+        <div style="text-align:center"><span class="published" id="d8pub">✓ Published to Totara · 100% coverage</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLOSE -->
+  <section class="stage dark" id="close" data-i="9">
+    <div class="inner">
+      <div class="kicker anim a1">The bottom line</div>
+      <h2 class="anim a1" style="color:#fff">Save time. Save cost.<br>Get every role right.</h2>
+      <div class="bigrow anim a2">
+        <div class="metric"><b>Save</b><span>time on every role</span></div>
+        <div class="metric"><b>Smarter</b><span>L&amp;D spend</span></div>
+        <div class="metric"><b>100%</b><span>consistent &amp; covered</span></div>
+      </div>
+      <a class="cta anim a3" href="#hero" onclick="document.getElementById('scroller').scrollTo({top:0,behavior:'smooth'});return false;">Back to start ↑</a>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const scroller=document.getElementById('scroller');
+  const stages=[...document.querySelectorAll('.stage')];
+  const total=8;
+
+  // build value chips
+  const icons={
+    time:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>',
+    cost:'<svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M16 7c0-2-2-3-4-3s-4 1-4 3 2 3 4 3.5 4 1.5 4 3.5-2 3-4 3-4-1-4-3"/></svg>',
+    acc:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>',
+    speed:'<svg viewBox="0 0 24 24"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>'
+  };
+  const cls={time:'time',cost:'cost',acc:'acc',speed:'speed'};
+  document.querySelectorAll('[data-chips]').forEach(el=>{
+    const arr=JSON.parse(el.dataset.chips);
+    el.innerHTML=arr.map(([t,txt])=>`<span class="chip ${cls[t]}"><span class="ci">${icons[t]}</span>${txt}</span>`).join('');
+  });
+
+  // dots
+  const dotsWrap=document.getElementById('dots');
+  for(let i=1;i<=total;i++){const b=document.createElement('b');b.dataset.d=i;dotsWrap.appendChild(b);}
+  const dots=[...dotsWrap.children];
+
+  // ---- build demo internals ----
+  const skills=['Functional','Food Safety','Service','Interpersonal','Compliance','Leadership'];
+  const lvls=['Competent','Expert','Advanced'];
+  const d1=document.getElementById('d1');
+  d1.innerHTML='<div class="rl"></div>'+lvls.map(l=>`<div class="hd">${l}</div>`).join('');
+  const fwCells=[];
+  skills.forEach(s=>{d1.insertAdjacentHTML('beforeend',`<div class="rl">${s}</div>`);
+    lvls.forEach(()=>{const c=document.createElement('div');c.className='fwc';d1.appendChild(c);fwCells.push(c);});});
+
+  const roleList=['Cashier','Housekeeper','Barista','Executive Chef','Patient Dining','Facilities Tech','Director · Dining'];
+  document.getElementById('d2').innerHTML=roleList.map(r=>`<span class="rchip" data-r="${r}">${r}</span>`).join('');
+
+  function fillCat(el,n){for(let i=0;i<n;i++){const t=document.createElement('div');t.className='ct';el.appendChild(t);}}
+  fillCat(document.getElementById('d4'),60);
+  fillCat(document.getElementById('d5'),60);
+
+  const compText="I lead menu execution to brand standard, control food cost, and coach my kitchen team to safe, consistent quality.";
+
+  // ---- animation helpers ----
+  let typeTimer=null, rafIds={};
+  function stopType(){if(typeTimer){clearTimeout(typeTimer);typeTimer=null;}}
+  function typeInto(el,text){stopType();el.innerHTML='';const cur=document.createElement('span');cur.className='cursor';el.appendChild(cur);
+    let i=0;(function t(){if(i<=text.length){el.textContent=text.slice(0,i);el.appendChild(cur);i++;typeTimer=setTimeout(t,i<6?55:22);}})();}
+  function countUp(el,to,dur){if(rafIds['c'+el.id])cancelAnimationFrame(rafIds['c'+el.id]);const s=performance.now();
+    (function tick(now){const p=Math.min(1,(now-s)/dur),e=1-Math.pow(1-p,3);el.textContent=Math.floor(e*to).toLocaleString();
+      if(p<1)rafIds['c'+el.id]=requestAnimationFrame(tick);else el.textContent=to.toLocaleString();})(performance.now());}
+  function ringTo(ring,pctEl,to,dur,dark){if(rafIds.ring)cancelAnimationFrame(rafIds.ring);const s=performance.now();const base=dark?'rgba(255,255,255,.14)':'#e7ebf3';
+    (function tick(now){const p=Math.min(1,(now-s)/dur),e=1-Math.pow(1-p,3),v=e*to;
+      ring.style.background=`conic-gradient(var(--yellow) ${v}%, ${base} ${v}%)`;pctEl.textContent=Math.round(v)+'%';
+      if(p<1)rafIds.ring=requestAnimationFrame(tick);})(performance.now());}
+  function sweep(line,dur){if(rafIds.sweep)cancelAnimationFrame(rafIds.sweep);const par=line.parentElement.getBoundingClientRect();const w=par.width+60;const s=performance.now();
+    line.style.opacity=1;(function tick(now){const p=Math.min(1,(now-s)/dur);line.style.left=(-40+p*w)+'px';
+      if(p<1)rafIds.sweep=requestAnimationFrame(tick);else line.style.opacity=0;})(performance.now());}
+
+  const timeouts=[];
+  function clearAll(){timeouts.forEach(t=>clearTimeout(t));timeouts.length=0;}
+  const T=(fn,ms)=>timeouts.push(setTimeout(fn,ms));
+
+  function reset(n){
+    if(n===1)fwCells.forEach(c=>c.classList.remove('on'));
+    if(n===2)document.querySelectorAll('#d2 .rchip').forEach(c=>{c.classList.remove('sel','dim');});
+    if(n===3){stopType();document.getElementById('d3').innerHTML='<span class="cursor"></span>';}
+    if(n===4){document.getElementById('d4count').textContent='0';}
+    if(n===5){document.getElementById('d5count').textContent='0';document.querySelectorAll('#d5 .ct').forEach(t=>t.classList.remove('match'));}
+    if(n===6){const r=document.getElementById('d6ring');r.style.background='conic-gradient(var(--yellow) 0%, rgba(255,255,255,.14) 0%)';document.getElementById('d6pct').textContent='0%';document.querySelectorAll('#d6list .gaprow').forEach(x=>x.classList.remove('on'));}
+    if(n===7)document.querySelectorAll('#d7 .ncourse').forEach(c=>c.classList.remove('on'));
+    if(n===8){document.querySelectorAll('#d8 .lprow').forEach(r=>r.innerHTML='');document.getElementById('d8pub').classList.remove('on');}
+  }
+  function play(n){
+    clearAll();reset(n);
+    if(n===1)fwCells.forEach((c,i)=>T(()=>c.classList.add('on'),150+i*60));
+    if(n===2){const chips=[...document.querySelectorAll('#d2 .rchip')];T(()=>chips.forEach(c=>{
+      if(c.dataset.r==='Executive Chef')c.classList.add('sel');else c.classList.add('dim');}),450);}
+    if(n===3)T(()=>typeInto(document.getElementById('d3'),compText),350);
+    if(n===4){T(()=>{sweep(document.getElementById('d4scan'),1700);countUp(document.getElementById('d4count'),3222,1700);},250);}
+    if(n===5){countUp(document.getElementById('d5count'),1515,1600);const tiles=[...document.querySelectorAll('#d5 .ct')];
+      tiles.forEach((t,i)=>{if(i%3!==2)T(()=>t.classList.add('match'),300+i*16);});}
+    if(n===6){T(()=>ringTo(document.getElementById('d6ring'),document.getElementById('d6pct'),72,1300,true),250);
+      [...document.querySelectorAll('#d6list .gaprow')].forEach((r,i)=>T(()=>r.classList.add('on'),650+i*160));}
+    if(n===7)[...document.querySelectorAll('#d7 .ncourse')].forEach((c,i)=>T(()=>c.classList.add('on'),200+i*200));
+    if(n===8)buildPath();
+  }
+  function buildPath(){
+    const lanes=[[['Food Hygiene',0],['Onboarding',0]],[['Menu Execution',0],['Cost & Margin',1],['Allergen',1]],[['Coaching',1],['Menu Innovation',1],['Food Safety Ldr',1]]];
+    const rows=[...document.querySelectorAll('#d8 .lprow')];let order=[];
+    lanes.forEach((lane,li)=>{lane.forEach((c,ci)=>{
+      if(ci>0){const a=document.createElement('span');a.className='lpn';a.style.background='transparent';a.style.color='#9aa4b6';a.textContent='›';rows[li].appendChild(a);order.push(a);}
+      const n=document.createElement('span');n.className='lpn'+(c[1]?' new':'');n.textContent=c[0];rows[li].appendChild(n);order.push(n);});});
+    order.forEach((el,i)=>T(()=>el.classList.add('on'),200+i*140));
+    T(()=>document.getElementById('d8pub').classList.add('on'),200+order.length*140+250);
+  }
+
+  // ---- active detection ----
+  let current=-1;
+  const io=new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{
+      const st=e.target;const i=+st.dataset.i;
+      if(e.isIntersecting&&e.intersectionRatio>=0.55){
+        stages.forEach(s=>s.classList.remove('active'));
+        st.classList.add('active');
+        // progress + step no
+        document.getElementById('progline').style.width=(i/9*100)+'%';
+        const dn=st.dataset.demo;
+        document.getElementById('stepno').textContent = dn?`STEP ${dn} / ${total}`:(i===0?'':'DONE');
+        dots.forEach(d=>d.classList.toggle('on', +d.dataset.d==+dn));
+        if(dn && current!==i){current=i;play(+dn);}
+        else if(!dn){current=i;}
+      }
+    });
+  },{root:scroller,threshold:[0,.55,.8]});
+  stages.forEach(s=>io.observe(s));
+
+  // dot click nav
+  dots.forEach(d=>d.addEventListener('click',()=>{const t=document.querySelector(`.stage[data-demo="${d.dataset.d}"]`);t.scrollIntoView({behavior:'smooth'});}));
+
+  // hero starfield
+  const cv=document.getElementById('stars'),ctx=cv.getContext('2d');let W,H,st;
+  function rs(){W=cv.width=cv.offsetWidth;H=cv.height=cv.offsetHeight;
+    st=Array.from({length:Math.min(90,Math.floor(W*H/14000))},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.5+.3,a:Math.random()*.6+.15,va:Math.random()*.008+.002,ph:Math.random()*6.28,y2:Math.random()<.18}));}
+  rs();window.addEventListener('resize',rs);let tt=0;
+  (function draw(){ctx.clearRect(0,0,W,H);tt++;for(const s of st){const tw=s.a+Math.sin(tt*s.va*8+s.ph)*.18;
+    ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fillStyle=s.y2?`rgba(246,168,0,${Math.max(0,tw)})`:`rgba(255,255,255,${Math.max(0,tw)})`;ctx.fill();
+    s.y-=.06;if(s.y<-4){s.y=H+4;s.x=Math.random()*W;}}requestAnimationFrame(draw);})();
+</script>
+</body>
+</html>
